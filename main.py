@@ -1,8 +1,10 @@
-from locations import *
-
-
+from models import *
+from flask_httpauth import HTTPBasicAuth
+from flask import abort, request, jsonify, g, url_for
+auth = HTTPBasicAuth()
 # route to get all locations
 @app.route('/locations', methods=['GET'])
+@auth.login_required
 def get_locations():
     print(request)
     '''Function to get all the locations in the database'''
@@ -70,6 +72,7 @@ def remove_location(id):
 
 # route to get metadata based on id
 @app.route('/meta/<int:id>', methods=['GET'])
+@auth.login_required
 def get_meta_by_id(id):
     '''Function to get all the locations in the database'''
     return jsonify({'Metadata': Metadata.get_metadata(id)})
@@ -105,6 +108,50 @@ def remove_meta(id):
     response = Response("Metadata Deleted", status=200, mimetype='application/json')
     return response
 
+
+@auth.verify_password
+def verify_password(username_or_token, password):
+    # first try token
+    user = User.verify_auth_token(username_or_token)
+    # then check for username and password pair
+    if not user:
+        user = User.query.filter_by(username = username_or_token).first()
+        if not user or not user.verify_password(password):
+            return False
+    g.user = user
+    return True
+
+
+@app.route('/api/register', methods=['POST'])
+def register():
+    username = request.json.get('username')
+    password = request.json.get('password')
+    # Check for blank requests
+    if username is None or password is None:
+        abort(400)
+    # Check for existing users
+    if User.query.filter_by(username = username).first() is not None:
+        abort(400)
+    user = User(username = username)
+    user.hash_password(password)
+    db.session.add(user)
+    db.session.commit()
+    return (jsonify({'username': user.username}), 201)
+
+
+@app.route('/api/login')
+@auth.login_required
+def get_token():
+    # username = request.json.get('username')
+    # password = request.json.get('password')
+    token = g.user.generate_auth_token(600)
+    return jsonify({ 'token': token.decode('ascii'), 'duration': 600 })
+
+
+@app.route('/api/dothis', methods=['GET'])
+@auth.login_required
+def do_this():
+    return jsonify({ 'message':'It is done {}'.format(g.user.username) })
 
 
 if __name__ == "__main__":
